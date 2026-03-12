@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LST — State Transition Diagram</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      background: #F6F8FA;
+      color: #1F2328;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #fff;
+      border-bottom: 1px solid #D0D7DE;
+      padding: 28px 48px 18px;
+    }
+    header h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 6px; }
+    header h1 em { font-style: normal; color: #0969DA; }
+    header p { font-size: 0.85rem; color: #57606A; line-height: 1.7; max-width: 720px; }
+    header p i { color: #1F2328; font-style: italic; }
+
+    .chart-card {
+      background: #fff;
+      margin: 20px 36px 0;
+      padding: 24px 28px 12px;
+      border-radius: 10px;
+      border: 1px solid #D0D7DE;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      overflow-x: auto;
+    }
+
+    #bottom-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 36px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    #legend { display: flex; gap: 14px; flex-wrap: wrap; }
+    .leg-item { display: flex; align-items: center; gap: 5px; font-size: 0.76rem; color: #57606A; }
+    .leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    #controls { display: flex; gap: 8px; }
+    #controls button {
+      font-family: 'Noto Sans KR', sans-serif;
+      background: #fff; border: 1px solid #D0D7DE; color: #24292F;
+      padding: 5px 14px; border-radius: 6px; font-size: 0.78rem; cursor: pointer;
+      transition: background 0.15s;
+    }
+    #controls button:hover { background: #F3F4F6; }
+    #controls button.pri { background: #0969DA; color: #fff; border-color: #0969DA; }
+    #controls button.pri:hover { background: #0860CA; }
+
+    #detail {
+      margin: 0 36px 24px;
+      padding: 16px 20px;
+      background: #fff;
+      border-radius: 10px;
+      border: 1px solid #D0D7DE;
+      font-size: 0.84rem;
+      color: #57606A;
+      line-height: 1.7;
+      min-height: 60px;
+      max-height: 320px;
+      overflow-y: auto;
+    }
+    #detail .ev-title { font-weight: 600; color: #1F2328; font-size: 0.92rem; margin-bottom: 6px; }
+    #detail .row { display: grid; grid-template-columns: 50px 1fr; gap: 6px; margin-bottom: 3px; }
+    #detail .key { font-weight: 600; color: #0969DA; font-size: 0.76rem; }
+    #detail .val { color: #1F2328; }
+
+    #tooltip {
+      position: fixed;
+      background: #fff;
+      border: 1px solid #D0D7DE;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.78rem;
+      line-height: 1.6;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.13);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      max-width: 320px;
+      z-index: 100;
+    }
+    #tooltip .tt-l { font-size: 0.68rem; font-weight: 600; color: #57606A; text-transform: uppercase; letter-spacing: 0.03em; }
+    #tooltip .tt-v { color: #1F2328; margin-bottom: 5px; }
+
+    .anno-box {
+      font-size: 11px;
+      fill: #57606A;
+      font-family: 'Noto Sans KR', sans-serif;
+    }
+    .anno-box .ab { font-weight: 600; fill: #1F2328; }
+    .anno-line { stroke: #8B949E; stroke-width: 1; stroke-dasharray: 3 2; }
+
+    .conflict-alert-viz {
+      background: #FFF5F5; border: 1px solid #CF222E; border-radius: 6px;
+      padding: 8px 12px; color: #CF222E; font-weight: 600;
+      margin-bottom: 10px; font-size: 0.82rem;
+    }
+    .conflict-detail-viz {
+      font-size: 0.8rem; padding-left: 12px; border-left: 2px solid #CF222E;
+      margin-bottom: 6px; line-height: 1.6;
+    }
+    .dup-member {
+      border-left: 3px solid #D0D7DE; padding-left: 10px; margin-bottom: 8px;
+    }
+    .dup-header {
+      color: #0969DA; font-weight: 600; font-size: 0.82rem; margin-bottom: 6px;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Legal State Trigger (<em>LST</em>) — 상태 전이 다이어그램</h1>
+    <p>가로축은 시간(<i>t</i>), 세로축은 법적 상태(<i>S</i>)를 나타냅니다.
+      평탄하게 유지되던 상태선(S₀)이 사건(N)을 만나는 순간,
+      법적 함수 <i>L</i>에 의해 계단식으로 변곡점을 그리며 새로운 상태(S₁)로 도약합니다.</p>
+  </header>
+
+  <div class="chart-card"><div id="chart"></div></div>
+
+  <div id="bottom-bar">
+    <div id="legend"></div>
+    <div id="controls">
+      <button onclick="document.getElementById('fi').click()">📂 JSON 불러오기</button>
+      <button class="pri" onclick="renderDemo()">데모 보기</button>
+      <input type="file" id="fi" accept=".json" style="display:none" />
+    </div>
+  </div>
+
+  <div id="detail">이벤트 마커를 클릭하면 S₀ → S₁ 전이 상세가 표시됩니다.</div>
+  <div id="tooltip"></div>
+
+  <script>
+    var L_COLORS = {
+      '기망행위': '#CF222E',
+      '착오': '#BF8700',
+      '재산처분행위': '#0969DA',
+      '손해 발생': '#8250DF',
+      '구성요건 외': '#6E7781'
+    };
+    function lc(L) { return L_COLORS[L] || '#6E7781'; }
+
+    var demoEvents = [
+      { date: new Date(2020,1,28), L:'기망행위',
+        E:'피의자가 "입금하면 1주일 내 발광페인트 수령 가능"이라고 허위 고지',
+        S0:'고소인이 피의자의 배송 약속을 신뢰하지 않은 상태',
+        S1:'고소인이 피의자의 배송 약속을 신뢰하게 된 상태', doc:'통신사실확인자료' },
+      { date: new Date(2020,1,28), L:'재산처분행위',
+        E:'고소인이 피의자 명의 계좌로 233만원을 송금',
+        S0:'고소인이 자금 233만원을 보유한 상태',
+        S1:'고소인의 자금 233만원이 피의자에게 이전된 상태', doc:'고소장' },
+      { date: new Date(2020,2,5), L:'기망행위',
+        E:'피의자가 피해금을 약속과 다른 용도(기존 채무, 생활비)로 사용',
+        S0:'피의자가 약속된 용도로 자금을 사용할 의무가 있는 상태',
+        S1:'피의자가 약속과 다르게 피해금을 사용한 상태', doc:'피해금사용처' },
+      { date: new Date(2020,2,28), L:'구성요건 외',
+        E:'고소인이 주문 취소 및 전액 환불 요청',
+        S0:'고소인이 발광페인트를 주문한 상태',
+        S1:'고소인이 주문을 취소하고 환불을 요청한 상태', doc:'카카오톡대화' },
+      { date: new Date(2020,4,15), L:'손해 발생',
+        E:'피의자가 50만원만 부분 환불, 나머지 183만원 미반환',
+        S0:'고소인이 환불을 요청한 상태',
+        S1:'고소인이 183만원의 경제적 손실을 입은 상태', doc:'통신사실확인자료' }
+    ];
+
+    function parseLSTDate(t) {
+      if (!t || typeof t !== 'string') return new Date(2000,0,1);
+      var s = t.trim();
+      var y = s.match(/(\d{4})년/), m = s.match(/(\d{1,2})월/), d = s.match(/(\d{1,2})일/);
+      return new Date(y ? +y[1] : 2000, m ? +m[1]-1 : 0, d ? +d[1] : 1);
+    }
+
+    function spreadDates(evts) {
+      evts.sort(function(a,b){ return a.date - b.date; });
+      var day = 86400000;
+      for (var i = 1; i < evts.length; i++) {
+        if (evts[i].date.getTime() <= evts[i-1].date.getTime())
+          evts[i].date = new Date(evts[i-1].date.getTime() + day * 2);
+      }
+    }
+
+    var tooltip = document.getElementById('tooltip');
+    var detailEl = document.getElementById('detail');
+    var currentEvents = [];
+
+    function buildLegend(evts) {
+      var seen = {};
+      evts.forEach(function(e){ seen[e.L] = true; });
+      var el = document.getElementById('legend');
+      el.innerHTML = '';
+      Object.keys(seen).forEach(function(k) {
+        el.innerHTML += '<div class="leg-item"><span class="leg-dot" style="background:'+lc(k)+'"></span>'+k+'</div>';
+      });
+      el.innerHTML += '<div class="leg-item"><span style="width:10px;height:10px;background:#CF222E;border-radius:2px;display:inline-block;flex-shrink:0;"></span>충돌</div>';
+    }
+
+    function processNodes(nodes) {
+      var par = {}, nodeById = {};
+      nodes.forEach(function(n) { par[n.id] = n.id; nodeById[n.id] = n; });
+      function find(x) { while (par[x] !== x) { par[x] = par[par[x]]; x = par[x]; } return x; }
+      function union(a, b) { par[find(a)] = find(b); }
+      nodes.forEach(function(n) {
+        Object.keys(n.argumentative_edges || {}).forEach(function(tid) {
+          var rel = n.argumentative_edges[tid];
+          if ((rel === 'Duplicate' || rel === 'Support') && nodeById[tid]) union(n.id, tid);
+        });
+      });
+      var clusters = {};
+      nodes.forEach(function(n) {
+        var root = find(n.id);
+        if (!clusters[root]) clusters[root] = [];
+        clusters[root].push(n);
+      });
+      var clusterMap = {};
+      Object.values(clusters).forEach(function(ms) {
+        ms.forEach(function(m) { clusterMap[m.id] = ms; });
+      });
+      var reps = Object.values(clusters).map(function(ms) { return ms[0]; });
+      var conflictIds = {};
+      nodes.forEach(function(n) {
+        Object.keys(n.argumentative_edges || {}).forEach(function(tid) {
+          if (n.argumentative_edges[tid] === 'Attack') { conflictIds[n.id] = true; conflictIds[tid] = true; }
+        });
+        if (n.v_status === 'Contested' || n.v_status === 'Refuted') conflictIds[n.id] = true;
+      });
+      return { reps: reps, clusterMap: clusterMap, conflictIds: conflictIds, nodeById: nodeById };
+    }
+
+    function render(events, annotate) {
+      currentEvents = events.map(function(e){ return Object.assign({}, e); });
+      spreadDates(currentEvents);
+      currentEvents.forEach(function(e,i){
+        e.level = i + 1;
+        if (!e.dupCount) e.dupCount = 1;
+        if (e.isConflict === undefined) e.isConflict = false;
+        if (!e.members) e.members = [e];
+        if (!e.attacks) e.attacks = [];
+      });
+      buildLegend(currentEvents);
+
+      var cw = Math.max(document.getElementById('chart').clientWidth, 600);
+      var mg = { top: 50, right: 50, bottom: 56, left: 70 };
+      var W = cw - mg.left - mg.right;
+      var stepH = Math.max(36, Math.min(60, 320 / currentEvents.length));
+      var H = stepH * (currentEvents.length + 1);
+
+      d3.select('#chart').selectAll('*').remove();
+      var svg = d3.select('#chart').append('svg')
+        .attr('width', W + mg.left + mg.right)
+        .attr('height', H + mg.top + mg.bottom)
+        .append('g').attr('transform', 'translate('+mg.left+','+mg.top+')');
+
+      var pad = 20 * 86400000;
+      var xMin = new Date(currentEvents[0].date.getTime() - pad * 2);
+      var xMax = new Date(currentEvents[currentEvents.length-1].date.getTime() + pad * 3);
+      var x = d3.scaleTime().domain([xMin, xMax]).range([0, W]);
+      var y = d3.scaleLinear().domain([0, currentEvents.length + 0.5]).range([H, 0]);
+
+      // grid
+      for (var i = 0; i <= currentEvents.length; i++) {
+        svg.append('line').attr('x1',0).attr('x2',W).attr('y1',y(i)).attr('y2',y(i))
+          .attr('stroke','#E8ECEF').attr('stroke-width',0.7);
+      }
+
+      // x-axis
+      svg.append('g').attr('transform','translate(0,'+H+')')
+        .call(d3.axisBottom(x).ticks(Math.min(currentEvents.length + 2, 8)).tickFormat(d3.timeFormat('%Y-%m-%d')))
+        .selectAll('text').style('font-size','10.5px').style('font-family','JetBrains Mono, monospace')
+        .attr('transform','rotate(-20)').attr('text-anchor','end');
+
+      svg.append('text').attr('x', W/2).attr('y', H + 50)
+        .attr('text-anchor','middle').style('font-size','11px').style('fill','#57606A').style('font-style','italic').text('t (시간)');
+
+      // y-axis label
+      svg.append('text').attr('transform','rotate(-90)').attr('x',-H/2).attr('y',-52)
+        .attr('text-anchor','middle').style('font-size','11px').style('fill','#57606A').style('font-style','italic').text('S (법적 상태)');
+
+      // state labels on y
+      svg.append('text').attr('x',-8).attr('y',y(0)+4).attr('text-anchor','end')
+        .style('font-size','11px').style('fill','#8B949E').style('font-weight','500').text('S₀');
+      currentEvents.forEach(function(e,i) {
+        svg.append('text').attr('x',-8).attr('y',y(i+1)+4).attr('text-anchor','end')
+          .style('font-size','11px').style('fill','#8B949E').style('font-weight','500')
+          .text('S'+ String.fromCharCode(0x2080 + i + 1));
+      });
+
+      // colored state bands
+      currentEvents.forEach(function(e,i) {
+        var bx = x(e.date);
+        var bw = (i < currentEvents.length-1) ? x(currentEvents[i+1].date) - bx : x(xMax) - bx;
+        svg.append('rect').attr('x', bx).attr('y', y(e.level)).attr('width', bw)
+          .attr('height', y(e.level-1) - y(e.level))
+          .attr('fill', lc(e.L)).attr('opacity', 0).transition().delay(i*120+200).duration(400).attr('opacity', 0.07);
+      });
+
+      // step path
+      var pathData = [{date: xMin, level: 0}];
+      currentEvents.forEach(function(e){ pathData.push({date: e.date, level: e.level}); });
+      pathData.push({date: xMax, level: currentEvents[currentEvents.length-1].level});
+
+      function stepD(data) {
+        var d = 'M '+x(data[0].date)+' '+y(data[0].level);
+        for (var j = 1; j < data.length; j++)
+          d += ' H '+x(data[j].date)+' V '+y(data[j].level);
+        return d;
+      }
+
+      // shadow
+      svg.append('path').attr('d', stepD(pathData))
+        .attr('fill','none').attr('stroke','#2C3E50').attr('stroke-width',6)
+        .attr('stroke-linecap','round').attr('opacity',0.06);
+
+      // main line with draw animation
+      var mainPath = svg.append('path').attr('d', stepD(pathData))
+        .attr('fill','none').attr('stroke','#2C3E50').attr('stroke-width',2.5)
+        .attr('stroke-linecap','round');
+      var totalLen = mainPath.node().getTotalLength();
+      mainPath.attr('stroke-dasharray', totalLen).attr('stroke-dashoffset', totalLen)
+        .transition().duration(1200).ease(d3.easeCubicOut).attr('stroke-dashoffset', 0);
+
+      // vertical dashed trigger lines
+      currentEvents.forEach(function(e,i) {
+        svg.append('line')
+          .attr('x1', x(e.date)).attr('x2', x(e.date))
+          .attr('y1', y(e.level)).attr('y2', H)
+          .attr('stroke', lc(e.L)).attr('stroke-width', 1.2).attr('stroke-dasharray','4 3')
+          .attr('opacity', 0).transition().delay(i*120+300).duration(300).attr('opacity', 0.35);
+      });
+
+      // L-type tags
+      currentEvents.forEach(function(e,i) {
+        svg.append('text')
+          .attr('x', x(e.date)).attr('y', y(e.level) - 12)
+          .attr('text-anchor','middle')
+          .style('font-size','10px').style('font-weight','600')
+          .style('font-family','JetBrains Mono, sans-serif')
+          .style('fill', lc(e.L))
+          .attr('opacity',0).transition().delay(i*120+400).duration(300).attr('opacity',1)
+          .text(e.L);
+      });
+
+      // event markers (● normal, ■ conflict)
+      currentEvents.forEach(function(e,i) {
+        if (e.isConflict) {
+          svg.append('rect')
+            .attr('x', x(e.date)-7).attr('y', y(e.level)-7)
+            .attr('width',14).attr('height',14).attr('rx',2)
+            .attr('fill','#CF222E').attr('stroke','#fff').attr('stroke-width',2)
+            .style('cursor','pointer')
+            .attr('opacity',0).transition().delay(i*120+300).duration(350).attr('opacity',1);
+        } else {
+          svg.append('circle')
+            .attr('cx', x(e.date)).attr('cy', y(e.level))
+            .attr('r', 0).attr('fill', lc(e.L)).attr('stroke','#fff').attr('stroke-width',2)
+            .style('cursor','pointer')
+            .transition().delay(i*120+300).duration(350).ease(d3.easeBackOut).attr('r', 6.5);
+        }
+        if (e.dupCount > 1) {
+          svg.append('text').attr('x', x(e.date)+14).attr('y', y(e.level)+4)
+            .style('font-size','9px').style('fill','#0969DA').style('font-weight','600')
+            .attr('opacity',0).transition().delay(i*120+400).duration(300).attr('opacity',1)
+            .text('×'+e.dupCount);
+        }
+        // hit area
+        svg.append('circle')
+          .attr('cx', x(e.date)).attr('cy', y(e.level))
+          .attr('r', 18).attr('fill','transparent').style('cursor','pointer')
+          .on('mouseenter', function(ev) {
+            tooltip.style.opacity = 1;
+            var h = '<div class="tt-l">'+e.L+'</div><div class="tt-v" style="font-weight:600;">'+esc(e.E)+'</div>';
+            if (e.dupCount > 1) h += '<div class="tt-v" style="color:#0969DA;font-size:0.72rem;">📑 '+e.dupCount+'개 문서에서 동일 사건 확인</div>';
+            if (e.isConflict) h += '<div class="tt-v" style="color:#CF222E;font-size:0.72rem;">⚠️ 논증 충돌 발생</div>';
+            h += '<div class="tt-l">출처</div><div class="tt-v">'+esc(e.doc || '')+'</div>';
+            tooltip.innerHTML = h;
+          })
+          .on('mousemove', function(ev) {
+            tooltip.style.left = (ev.clientX+14)+'px'; tooltip.style.top = (ev.clientY-10)+'px';
+          })
+          .on('mouseleave', function() { tooltip.style.opacity = 0; })
+          .on('click', function() { showDetail(e); });
+      });
+
+      // annotations (demo mode)
+      if (annotate && currentEvents.length >= 2) {
+        var e0 = currentEvents[0];
+        var ax = x(e0.date), ay0 = y(0), ay1 = y(1);
+        var midY = (ay0 + ay1) / 2;
+
+        // S₀ annotation
+        var a1x = ax - 80, a1y = ay0 - 10;
+        svg.append('line').attr('class','anno-line')
+          .attr('x1', a1x + 68).attr('y1', a1y + 4).attr('x2', ax - 8).attr('y2', ay0);
+        svg.append('text').attr('class','anno-box').attr('x', a1x).attr('y', a1y)
+          .html('<tspan class="ab">S₀</tspan>: 이전 상태');
+
+        // L transition annotation
+        var a2x = ax + 16, a2y = midY;
+        svg.append('line').attr('class','anno-line')
+          .attr('x1', ax + 3).attr('y1', midY).attr('x2', a2x).attr('y2', a2y);
+        svg.append('text').attr('class','anno-box').attr('x', a2x + 4).attr('y', a2y + 4)
+          .html('<tspan class="ab">L</tspan>: 법적 함수에 의한 상태 전이');
+
+        // N marker annotation
+        var a3x = ax, a3y = ay1 + 28;
+        svg.append('line').attr('class','anno-line')
+          .attr('x1', ax).attr('y1', ay1 + 8).attr('x2', a3x).attr('y2', a3y - 6);
+        svg.append('text').attr('class','anno-box').attr('x', a3x).attr('y', a3y)
+          .attr('text-anchor','middle')
+          .html('<tspan class="ab">N</tspan>: Legal State Trigger');
+
+        // S₁ annotation
+        var e1 = currentEvents[1];
+        var a4x = (x(e0.date) + x(e1.date)) / 2, a4y = ay1 - 26;
+        svg.append('line').attr('class','anno-line')
+          .attr('x1', a4x).attr('y1', a4y + 6).attr('x2', a4x).attr('y2', ay1 - 3);
+        svg.append('text').attr('class','anno-box').attr('x', a4x).attr('y', a4y)
+          .attr('text-anchor','middle')
+          .html('<tspan class="ab">S₁</tspan>: 전이된 새로운 상태');
+      }
+    }
+
+    function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    function showDetail(e) {
+      var html = '';
+      if (e.isConflict && e.attacks && e.attacks.length > 0) {
+        html += '<div class="conflict-alert-viz">⚠️ 논증 충돌 감지 ('+e.attacks.length+'건)</div>';
+        e.attacks.forEach(function(a) {
+          html += '<div class="conflict-detail-viz">'
+            +'<b>'+esc(a.from.doc_source||a.from.doc||'')+'</b>: '+esc(a.from.E)
+            +' <span style="color:#CF222E;font-weight:600;"> ↔ 반박 </span> '
+            +'<b>'+esc(a.to.doc_source||a.to.doc||'')+'</b>: '+esc(a.to.E)+'</div>';
+        });
+      }
+      var mk = e.isConflict ? '<span style="color:#CF222E;">■ </span>' : '<span style="color:'+lc(e.L)+';">● </span>';
+      html += '<div class="ev-title">'+mk+esc(e.E)+'</div>';
+      html += '<div class="row"><span class="key">L</span><span class="val" style="color:'+lc(e.L)+';font-weight:600;">'+esc(e.L)+'</span></div>';
+      html += '<div class="row"><span class="key">S₀</span><span class="val">'+esc(e.S0)+'</span></div>';
+      html += '<div class="row"><span class="key">S₁</span><span class="val">'+esc(e.S1)+'</span></div>';
+      if (e.doc) html += '<div class="row"><span class="key">출처</span><span class="val" style="color:#57606A;">'+esc(e.doc)+'</span></div>';
+      if (e.members && e.members.length > 1) {
+        html += '<div class="dup-header" style="margin-top:10px;">📑 동일 사건 — '+e.members.length+'개 문서에서 확인</div>';
+        e.members.forEach(function(m) {
+          html += '<div class="dup-member">';
+          html += '<div style="font-size:0.75rem;color:#0969DA;margin-bottom:2px;">['+esc(m.doc_source||m.doc||'')+']</div>';
+          html += '<div class="row"><span class="key">S₀</span><span class="val">'+esc(m.S0)+'</span></div>';
+          html += '<div class="row"><span class="key">S₁</span><span class="val">'+esc(m.S1)+'</span></div>';
+          html += '</div>';
+        });
+      }
+      detailEl.innerHTML = html;
+    }
+
+    function renderDemo() { render(demoEvents, true); detailEl.innerHTML = '이벤트 마커를 클릭하면 S₀ → S₁ 전이 상세가 표시됩니다.'; }
+
+    document.getElementById('fi').addEventListener('change', function(ev) {
+      var file = ev.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          var data = JSON.parse(e.target.result);
+          var nodes = (data.aggregated_graph || {}).assembled_nodes || [];
+          if (!nodes.length) return alert('assembled_nodes가 비어 있습니다.');
+          var proc = processNodes(nodes);
+          var evts = proc.reps.map(function(n) {
+            var ms = proc.clusterMap[n.id] || [n];
+            var isCon = ms.some(function(m) { return !!proc.conflictIds[m.id]; });
+            var atk = [];
+            ms.forEach(function(m) {
+              Object.keys(m.argumentative_edges || {}).forEach(function(tid) {
+                if (m.argumentative_edges[tid] === 'Attack') {
+                  var tgt = proc.nodeById[tid];
+                  if (tgt) atk.push({ from: m, to: tgt });
+                }
+              });
+            });
+            return {
+              id: n.id, date: parseLSTDate(n.t), L: n.L||'구성요건 외',
+              E: n.E||'', S0: n.S0||'', S1: n.S1||'', doc: n.doc_source||'',
+              dupCount: ms.length, isConflict: isCon, members: ms, attacks: atk
+            };
+          });
+          render(evts, false);
+          detailEl.innerHTML = nodes.length+'개 노드 → '+evts.length+'개 고유 사건 (중복 '+(nodes.length-evts.length)+'개 제거). 마커를 클릭하세요.';
+        } catch(err) { alert('JSON 파싱 오류: ' + err.message); }
+      };
+      reader.readAsText(file);
+    });
+
+    renderDemo();
+  </script>
+</body>
+
+</html>

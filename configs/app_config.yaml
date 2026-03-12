@@ -1,0 +1,13 @@
+llm:
+  provider: "openai"  # "openai" 또는 "anthropic" 선택
+  model_name: "gpt-4o" # anthropic의 경우 예: "claude-3-5-sonnet-20241022"
+  temperature: 0.1
+
+paths:
+  data_dir: "f:/논문/paper_trigger/발광페인트/"
+  output_dir: "f:/논문/paper_trigger/output/"
+  prompts_dir: "prompts/"
+
+thresholds:
+  human_review_upper: 0.55
+  human_review_lower: 0.45

@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LST State-Centric Stepped Diagram</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<style>
+:root {
+  --bg: #f8f9fa; --surface: #fff; --text: #1a1a2e; --muted: #6c757d;
+  --type0: #c0392b; --type0-bg: rgba(192,57,43,.10);
+  --type1: #e67e22; --type1-bg: rgba(230,126,34,.08);
+  --type2: #f39c12; --type2-bg: rgba(243,156,18,.10);
+  --type3: #2980b9; --type3-bg: rgba(41,128,185,.07);
+  --conflict: #e74c3c; --dup-badge: #8e44ad; --causal: #34495e;
+  --step-line: #2c3e50; --step-dash: #bdc3c7;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:var(--text); }
+header { padding:20px 28px 12px; border-bottom:1px solid #e9ecef; background:var(--surface); }
+header h1 { font-size:1.25rem; font-weight:700; letter-spacing:-.02em; }
+header p { font-size:.82rem; color:var(--muted); margin-top:4px; line-height:1.5; max-width:800px; }
+#controls { display:flex; gap:10px; padding:10px 28px; background:var(--surface); border-bottom:1px solid #e9ecef; align-items:center; }
+#controls button, #controls label {
+  font-family:inherit; font-size:.8rem; padding:6px 14px; border-radius:5px; cursor:pointer; border:1px solid #dee2e6; background:#fff; transition:.15s;
+}
+#controls button:hover, #controls label:hover { background:#f1f3f5; }
+#controls .active { background:var(--causal); color:#fff; border-color:var(--causal); }
+#controls .sep { width:1px; height:20px; background:#dee2e6; }
+#file-input { display:none; }
+#filters { display:flex; gap:12px; padding:8px 28px; background:var(--surface); border-bottom:1px solid #e9ecef; flex-wrap:wrap; align-items:center; }
+#filters .filter-title { font-size:.78rem; font-weight:600; color:var(--muted); margin-right:4px; }
+#filters label { display:flex; align-items:center; gap:4px; font-size:.78rem; cursor:pointer; padding:3px 8px; border-radius:4px; transition:.15s; user-select:none; }
+#filters label:hover { background:#f1f3f5; }
+#filters input[type="checkbox"] { display:none; }
+#filters .cb-swatch { width:12px; height:12px; border-radius:50%; border:2px solid transparent; transition:.15s; }
+#filters input:checked + .cb-swatch { border-color:var(--text); box-shadow:0 0 0 1px rgba(0,0,0,.1); }
+#filters input:not(:checked) + .cb-swatch { opacity:.35; }
+#filters input:not(:checked) ~ .cb-label { opacity:.4; text-decoration:line-through; }
+#stats { display:flex; gap:16px; padding:8px 28px; font-size:.78rem; color:var(--muted); background:#f1f3f5; flex-wrap:wrap; align-items:center; }
+#stats .stat { display:flex; align-items:center; gap:4px; }
+#stats .stat b { color:var(--text); }
+#chart-wrap { padding:16px 28px; overflow-x:auto; }
+#chart { min-height:420px; background:var(--surface); border:1px solid #e9ecef; border-radius:8px; position:relative; }
+#tooltip {
+  position:fixed; pointer-events:none; background:rgba(26,26,46,.92); color:#fff; padding:10px 14px;
+  border-radius:6px; font-size:.75rem; line-height:1.55; max-width:340px; z-index:100; display:none;
+  font-family:'JetBrains Mono','Noto Sans KR',monospace;
+}
+#detail {
+  margin:0 28px 24px; padding:16px 20px; background:var(--surface); border:1px solid #e9ecef;
+  border-radius:8px; max-height:320px; overflow-y:auto; display:none;
+}
+#detail h3 { font-size:.9rem; margin-bottom:8px; }
+#detail .field { font-size:.8rem; line-height:1.6; margin-bottom:2px; }
+#detail .field b { display:inline-block; min-width:50px; color:var(--muted); }
+#detail .conflict-alert { background:rgba(231,76,60,.08); border-left:3px solid var(--conflict); padding:8px 12px; margin:8px 0; border-radius:0 4px 4px 0; font-size:.8rem; }
+#detail .conflict-alert strong { color:var(--conflict); }
+#detail .dup-list { margin:8px 0; padding:8px 12px; background:#f8f0ff; border-radius:4px; font-size:.78rem; }
+#detail .dup-list .dup-item { padding:4px 0; border-bottom:1px solid #f0e6fa; }
+#detail .dup-list .dup-item:last-child { border:none; }
+#legend-bar {
+  display:flex; gap:16px; flex-wrap:wrap; padding:8px 28px; align-items:center;
+  font-size:.78rem; color:var(--muted); background:var(--surface); border:1px solid #e9ecef;
+  border-top:none; margin:0 28px; border-radius:0 0 8px 8px;
+}
+#legend-bar .lg-item { display:flex; align-items:center; gap:5px; }
+#legend-bar .lg-circle { width:12px; height:12px; border-radius:50%; flex-shrink:0; }
+#legend-bar .lg-square { width:12px; height:12px; border-radius:2px; flex-shrink:0; }
+#legend-bar .lg-text { font-weight:700; font-size:11px; }
+#verdict-card {
+  display:none; margin:0; padding:8px 28px; font-size:.8rem; line-height:1.6;
+  background:#f8f9fa; border-bottom:1px solid #e9ecef;
+}
+#verdict-card .vc-line { margin-bottom:2px; }
+#verdict-card .vc-label { color:var(--muted); font-weight:600; margin-right:6px; }
+#verdict-card .vc-value { color:var(--text); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>State-Centric Stepped Diagram</h1>
+  <p>LST에서 도출된 <b>결과 상태(S1)</b>를 수평 축으로, <b>기망 고의성 신뢰도(P)</b>를 수직 축으로 배치한 계단형 전환 다이어그램입니다.
+  S1(n)→S0(n+1) 인과 연쇄에서는 신뢰도가 수평을 유지하고, 새로운 L-Function 투입 시 수직 점프합니다.
+  충돌(Attack) 지점은 <span style="color:var(--conflict);font-weight:700">빨간 네모</span>로 표시됩니다.</p>
+</header>
+
+<div id="controls">
+  <label for="file-input" class="file-label">JSON 불러오기</label>
+  <input type="file" id="file-input" accept=".json">
+  <button id="btn-demo" class="active">데모 보기</button>
+</div>
+<div id="filters"></div>
+<div id="stats"></div>
+<div id="verdict-card"></div>
+<div id="chart-wrap"><div id="chart"></div></div>
+<div id="legend-bar"></div>
+<div id="tooltip"></div>
+<div id="detail"></div>
+
+<script>
+// === Color & Config ===
+const TYPE_BANDS = [
+  { y0:0.00, y1:0.44, fill:'var(--type3-bg)', label:'Type 3 — 불인정',       color:'var(--type3)' },
+  { y0:0.45, y1:0.59, fill:'var(--type2-bg)', label:'Type 2 — 모호 (Human Review)', color:'var(--type2)' },
+  { y0:0.60, y1:0.85, fill:'var(--type1-bg)', label:'Type 1 — 강정황 고의',   color:'var(--type1)' },
+  { y0:0.86, y1:1.00, fill:'var(--type0-bg)', label:'Type 0 — 명시적 고의',   color:'var(--type0)' },
+];
+const L_COLORS = {
+  '기망행위':'#e74c3c','착오 유발':'#e67e22','재산처분행위':'#f39c12',
+  '재산상 이익 취득':'#d35400','손해 발생':'#c0392b','구성요건 외':'#95a5a6',
+};
+const L_INTENT_HINT = {
+  '기망행위':0.78,'착오 유발':0.65,'재산처분행위':0.58,
+  '재산상 이익 취득':0.72,'손해 발생':0.62,'구성요건 외':0.28,
+};
+
+// === Demo Data ===
+const demoNodes = [
+  {id:'d01',t:'2023년 1월',E:'피의자가 허위 수익률 30% 제시',speaker:'피해자',S0:'피해자 투자 미결정',L:'기망행위',S1:'피해자가 피의자를 신뢰',
+   intent_confidence:.82,intent_reasoning:'기망행위(L)에 해당. S1이 착오 유발의 전제 상태.',v_status:'Accepted',doc_source:'고소장',C_sources:[],argumentative_edges:{}},
+  {id:'d02',t:'2023년 2월',E:'피해자가 3,000만원 송금',speaker:'피해자',S0:'피해자가 투자를 결심한 상태',L:'재산처분행위',S1:'피해자 자산 3000만원 손실',
+   intent_confidence:.72,intent_reasoning:'재산처분행위(L). 기망에 의한 착오 상태에서의 처분.',v_status:'Accepted',doc_source:'고소장',C_sources:['d01'],argumentative_edges:{}},
+  {id:'d03',t:'2023년 2월',E:'피의자 투자금 3000만원 수령 확인',speaker:'객관적증거',S0:'투자금 이전 전',L:'재산상 이익 취득',S1:'피의자가 3000만원 취득',
+   intent_confidence:.80,intent_reasoning:'재산상 이익 취득(L). Evidence(금융거래정보)가 확인.',v_status:'Accepted',doc_source:'수사보고_금융거래정보',C_sources:['d02'],argumentative_edges:{}},
+  {id:'d03b',t:'2023년 2월',E:'피의자 투자금 수령 (카드내역)',speaker:'객관적증거',S0:'투자금 이전 전',L:'재산상 이익 취득',S1:'피의자가 3000만원 취득',
+   intent_confidence:.80,intent_reasoning:'동일 사실의 중복 확인.',v_status:'Accepted',doc_source:'수사보고_카드내역',C_sources:['d02'],argumentative_edges:{d03:'Duplicate'}},
+  {id:'d04',t:'2023년 3월',E:'피의자: "수익률은 실제 데이터 기반"',speaker:'피의자',S0:'기망 의혹 상태',L:'기망행위',S1:'기망 여부 쟁점',
+   intent_confidence:.48,intent_reasoning:'피의자 진술. 고소장과 Attack 관계로 Contested.',v_status:'Contested',doc_source:'피의자신문조서',C_sources:[],argumentative_edges:{d01:'Attack'}},
+  {id:'d05',t:'2023년 4월',E:'실제 수익률 5%로 확인 (금감원 자료)',speaker:'객관적증거',S0:'수익률 진위 미확인',L:'구성요건 외',S1:'허위 수익률 사실 확인',
+   intent_confidence:.88,intent_reasoning:'객관적 Evidence가 피의자 주장을 직접 반박. 기망 확정의 핵심 증거.',v_status:'Accepted',doc_source:'수사보고_금감원',C_sources:['d04'],argumentative_edges:{d04:'Attack'}},
+  {id:'d06',t:'2023년 5월',E:'피해자 착오로 인한 피해 호소',speaker:'피해자',S0:'투자 손실 인지',L:'손해 발생',S1:'피해자 재산 손해 확정',
+   intent_confidence:.70,intent_reasoning:'손해 발생(L). 기망→착오→처분→손해 연쇄의 최종 단계.',v_status:'Accepted',doc_source:'고소장',C_sources:['d03','d05'],argumentative_edges:{}},
+];
+
+// === Union-Find ===
+class UnionFind {
+  constructor(ids) { this.p={}; this.r={}; ids.forEach(id=>{this.p[id]=id;this.r[id]=0;}); }
+  find(x) { if(this.p[x]!==x) this.p[x]=this.find(this.p[x]); return this.p[x]; }
+  union(a,b) {
+    let ra=this.find(a),rb=this.find(b);
+    if(ra===rb) return;
+    if(this.r[ra]<this.r[rb]) [ra,rb]=[rb,ra];
+    this.p[rb]=ra;
+    if(this.r[ra]===this.r[rb]) this.r[ra]++;
+  }
+}
+
+// === Data Processing ===
+function parseDate(t) {
+  if(!t) return new Date(2000,0,1);
+  const y=(t.match(/(\d{4})년/)||[])[1]||2000;
+  const m=(t.match(/(\d{1,2})월/)||[])[1]||1;
+  const d=(t.match(/(\d{1,2})일/)||[])[1]||1;
+  return new Date(+y, +m-1, +d);
+}
+
+function inferIntent(node) {
+  if(node.intent_confidence && node.intent_confidence > 0) return node.intent_confidence;
+  let score = L_INTENT_HINT[node.L] || 0.3;
+  if(node.v_status==='Refuted') score *= 0.15;
+  else if(node.v_status==='Contested') score *= 0.7;
+  if(node.doc_source && (node.doc_source.includes('수사보고')||node.doc_source.includes('증거'))) score = Math.min(1, score * 1.1);
+  return Math.round(score*100)/100;
+}
+
+function processNodes(rawNodes) {
+  const nodes = rawNodes.map(n => ({...n, intent_confidence: inferIntent(n)}));
+  const ids = nodes.map(n=>n.id);
+  const uf = new UnionFind(ids);
+  const conflictIds = new Set();
+
+  nodes.forEach(n => {
+    Object.entries(n.argumentative_edges||{}).forEach(([tid,rel]) => {
+      if(rel==='Duplicate'||rel==='Support') uf.union(n.id, tid);
+      if(rel==='Attack') { conflictIds.add(n.id); conflictIds.add(tid); }
+    });
+    if(n.v_status==='Contested'||n.v_status==='Refuted') conflictIds.add(n.id);
+  });
+
+  const clusters = {};
+  nodes.forEach(n => {
+    const root = uf.find(n.id);
+    if(!clusters[root]) clusters[root] = [];
+    clusters[root].push(n);
+  });
+
+  const reps = [];
+  const clusterMap = {};
+  Object.values(clusters).forEach(members => {
+    members.sort((a,b) => parseDate(a.t)-parseDate(b.t));
+    const rep = members[0];
+    const isConflict = members.some(m => conflictIds.has(m.id));
+    const avgIntent = members.reduce((s,m)=>s+m.intent_confidence,0)/members.length;
+    const attacks = [];
+    members.forEach(m => {
+      Object.entries(m.argumentative_edges||{}).forEach(([tid,rel]) => {
+        if(rel==='Attack') {
+          const target = rawNodes.find(n=>n.id===tid);
+          attacks.push({from:m, to:target, rel});
+        }
+      });
+    });
+    const ev = {
+      ...rep, intent_confidence: Math.round(avgIntent*100)/100,
+      dupCount: members.length, isConflict, members, attacks,
+      _csources: [...new Set(members.flatMap(m=>m.C_sources||[]))],
+    };
+    clusterMap[rep.id] = ev;
+    members.forEach(m => clusterMap[m.id] = ev);
+    reps.push(ev);
+  });
+
+  // Topological sort via C_sources
+  const repIdSet = new Set(reps.map(r=>r.id));
+  const resolveCSrc = (csrcs) => {
+    const resolved = new Set();
+    csrcs.forEach(cid => {
+      const mapped = clusterMap[cid];
+      if(mapped && repIdSet.has(mapped.id)) resolved.add(mapped.id);
+    });
+    return [...resolved];
+  };
+  reps.forEach(r => { r._resolvedC = resolveCSrc(r._csources); });
+
+  const inDeg = {}; reps.forEach(r=>inDeg[r.id]=0);
+  reps.forEach(r => r._resolvedC.forEach(pid => { if(inDeg[r.id]!==undefined) inDeg[r.id]++; }));
+
+  const sorted = [];
+  const queue = reps.filter(r=>inDeg[r.id]===0).sort((a,b)=>parseDate(a.t)-parseDate(b.t));
+  const visited = new Set();
+  while(queue.length) {
+    queue.sort((a,b)=>parseDate(a.t)-parseDate(b.t));
+    const cur = queue.shift();
+    if(visited.has(cur.id)) continue;
+    visited.add(cur.id);
+    sorted.push(cur);
+    reps.forEach(r => {
+      if(!visited.has(r.id) && r._resolvedC.includes(cur.id)) {
+        inDeg[r.id]--;
+        if(inDeg[r.id]<=0) queue.push(r);
+      }
+    });
+  }
+  reps.filter(r=>!visited.has(r.id)).sort((a,b)=>parseDate(a.t)-parseDate(b.t)).forEach(r=>sorted.push(r));
+  return sorted;
+}
+
+// === Rendering ===
+function render(events) {
+  const container = document.getElementById('chart');
+  container.innerHTML = '';
+  const tooltip = document.getElementById('tooltip');
+  const detail = document.getElementById('detail');
+
+  const margin = {top:28, right:80, bottom:90, left:54};
+  const W = Math.max(container.clientWidth, events.length * 100 + margin.left + margin.right);
+  const H = 440;
+  const w = W - margin.left - margin.right;
+  const h = H - margin.top - margin.bottom;
+
+  const svg = d3.select(container).append('svg').attr('width',W).attr('height',H);
+  const g = svg.append('g').attr('transform',`translate(${margin.left},${margin.top})`);
+
+  const x = d3.scaleBand().domain(events.map((_,i)=>i)).range([0,w]).padding(.25);
+  const y = d3.scaleLinear().domain([0,1]).range([h,0]);
+
+  // Background bands
+  TYPE_BANDS.forEach(b => {
+    g.append('rect').attr('x',0).attr('width',w).attr('y',y(b.y1)).attr('height',y(b.y0)-y(b.y1))
+     .attr('fill',b.fill);
+  });
+
+  // Y axis
+  g.append('g').call(d3.axisLeft(y).ticks(10).tickFormat(d3.format('.1f')))
+   .selectAll('text').attr('font-size','9px');
+  g.append('text').attr('transform','rotate(-90)').attr('x',-h/2).attr('y',-40)
+   .attr('text-anchor','middle').attr('font-size','11px').attr('font-weight','500').text('Intent Confidence (P)');
+
+  // Gridlines
+  g.append('g').attr('class','grid')
+   .call(d3.axisLeft(y).ticks(10).tickSize(-w).tickFormat(''))
+   .selectAll('line').attr('stroke','#e9ecef');
+  g.selectAll('.grid .domain').remove();
+
+  // Verdict score line
+  if(_verifiedIntent) {
+    const vy = y(_verifiedIntent.intent_score);
+    const ts = TYPE_STYLES[_verifiedIntent.intent_type] || TYPE_STYLES['Type 2'];
+    g.append('line').attr('x1',0).attr('y1',vy).attr('x2',w).attr('y2',vy)
+     .attr('stroke',ts.border).attr('stroke-width',1.5).attr('stroke-dasharray','6,4').attr('opacity',.7);
+    g.append('text').attr('x',w+4).attr('y',vy+4)
+     .attr('font-size','10px').attr('fill',ts.border).attr('font-weight',600)
+     .text(`판결 ${_verifiedIntent.intent_score.toFixed(2)}`);
+  }
+
+  // Step path segments
+  for(let i=0;i<events.length-1;i++){
+    const ev=events[i], next=events[i+1];
+    const x1=x(i)+x.bandwidth()/2, x2=x(i+1)+x.bandwidth()/2;
+    const y1=y(ev.intent_confidence), y2=y(next.intent_confidence);
+    const hasCausal = next._resolvedC && next._resolvedC.includes(ev.id);
+
+    // Horizontal segment (from current to next X, at current Y)
+    g.append('line').attr('x1',x1).attr('y1',y1).attr('x2',x2).attr('y2',y1)
+     .attr('stroke', hasCausal ? 'var(--step-line)' : 'var(--step-dash)')
+     .attr('stroke-width', hasCausal ? 2.2 : 1.2)
+     .attr('stroke-dasharray', hasCausal ? 'none' : '5,4');
+
+    // Vertical segment (at next X, from current Y to next Y)
+    if(Math.abs(y1-y2)>1){
+      g.append('line').attr('x1',x2).attr('y1',y1).attr('x2',x2).attr('y2',y2)
+       .attr('stroke','var(--step-line)').attr('stroke-width',2.2);
+    }
+  }
+
+  // Causal chain arrows (faint)
+  events.forEach((ev,i) => {
+    if(!ev._resolvedC) return;
+    ev._resolvedC.forEach(pid => {
+      const pi = events.findIndex(e=>e.id===pid);
+      if(pi<0||pi>=i) return;
+      const ax = x(pi)+x.bandwidth()/2, bx = x(i)+x.bandwidth()/2;
+      const ay = y(events[pi].intent_confidence)+12, by = y(ev.intent_confidence)+12;
+      g.append('path')
+       .attr('d',`M${ax},${ay} Q${(ax+bx)/2},${Math.max(ay,by)+30} ${bx},${by}`)
+       .attr('fill','none').attr('stroke','#dfe6e9').attr('stroke-width',1)
+       .attr('stroke-dasharray','3,3');
+    });
+  });
+
+  // Nodes
+  const nodeG = g.selectAll('.node').data(events).enter().append('g')
+    .attr('class','node')
+    .attr('transform',(d,i)=>`translate(${x(i)+x.bandwidth()/2},${y(d.intent_confidence)})`)
+    .style('cursor','pointer');
+
+  // Conflict: red rounded square
+  nodeG.filter(d=>d.isConflict).append('rect')
+    .attr('x',-11).attr('y',-11).attr('width',22).attr('height',22)
+    .attr('rx',3).attr('fill','var(--conflict)').attr('stroke','#c0392b').attr('stroke-width',1.5);
+  nodeG.filter(d=>d.isConflict).append('text')
+    .attr('text-anchor','middle').attr('dy','.35em').attr('fill','#fff').attr('font-size','12px').attr('font-weight','700')
+    .text('!');
+
+  // Normal: colored circle
+  nodeG.filter(d=>!d.isConflict).append('circle')
+    .attr('r',9).attr('fill',d=>L_COLORS[d.L]||'#95a5a6').attr('stroke','#fff').attr('stroke-width',2);
+
+  // L label inside circle
+  nodeG.filter(d=>!d.isConflict).append('text')
+    .attr('text-anchor','middle').attr('dy','.35em').attr('fill','#fff').attr('font-size','7px').attr('font-weight','700')
+    .text(d=>d.L?d.L.charAt(0):'');
+
+  // Duplicate badge: + marker
+  nodeG.filter(d=>d.dupCount>1).append('text')
+    .attr('x',14).attr('y',-12).attr('fill','var(--dup-badge)').attr('font-size','11px').attr('font-weight','700')
+    .text(d=>`+${d.dupCount-1}`);
+
+  // Intent confidence label above node
+  nodeG.append('text')
+    .attr('y',-16).attr('text-anchor','middle').attr('font-size','9px').attr('font-weight','500')
+    .attr('fill',d=>d.isConflict?'var(--conflict)':'var(--causal)')
+    .text(d=>d.intent_confidence.toFixed(2));
+
+  // X-axis: time (t) labels — group identical, rotate 45°
+  const timeSpans = [];
+  events.forEach((ev,i) => {
+    const last = timeSpans[timeSpans.length - 1];
+    if(last && last.t === ev.t) { last.end = i; }
+    else { timeSpans.push({t: ev.t, start: i, end: i}); }
+  });
+  timeSpans.forEach(span => {
+    const x1 = x(span.start) + x.bandwidth()/2;
+    const x2 = x(span.end) + x.bandwidth()/2;
+    const cx = (x1 + x2) / 2;
+    // bracket line for multi-node spans
+    if(span.start !== span.end) {
+      g.append('line').attr('x1',x1).attr('y1',h+6).attr('x2',x2).attr('y2',h+6)
+       .attr('stroke','#ced4da').attr('stroke-width',1);
+      g.append('line').attr('x1',x1).attr('y1',h+3).attr('x2',x1).attr('y2',h+6)
+       .attr('stroke','#ced4da').attr('stroke-width',1);
+      g.append('line').attr('x1',x2).attr('y1',h+3).attr('x2',x2).attr('y2',h+6)
+       .attr('stroke','#ced4da').attr('stroke-width',1);
+    }
+    g.append('text')
+     .attr('x',cx).attr('y',h+14)
+     .attr('transform',`rotate(45,${cx},${h+14})`)
+     .attr('text-anchor','start').attr('font-size','9px').attr('fill','var(--muted)')
+     .text(span.t);
+  });
+
+  // Hover
+  nodeG.on('mousemove', (event,d) => {
+    tooltip.style.display='block';
+    tooltip.style.left=(event.clientX+14)+'px';
+    tooltip.style.top=(event.clientY-10)+'px';
+    tooltip.innerHTML = `<b>${d.E}</b><br>
+      t: ${d.t}<br>L: ${d.L}<br>
+      화자: ${d.speaker||'—'}<br>
+      S0: ${d.S0}<br>S1: ${d.S1}<br>
+      P: <b>${d.intent_confidence.toFixed(2)}</b> | ${d.v_status}<br>
+      출처: ${d.doc_source}` +
+      (d.dupCount>1?`<br><span style="color:#bb86fc">중복: ${d.dupCount}개 문서</span>`:'') +
+      (d.isConflict?`<br><span style="color:#ff6b6b">⚠ 충돌 발생</span>`:'');
+  }).on('mouseleave', () => { tooltip.style.display='none'; });
+
+  // Click → detail panel
+  nodeG.on('click', (event,d) => {
+    detail.style.display='block';
+    let html = `<h3>${d.isConflict?'⚠ 충돌 노드':'📍 노드'}: ${d.E}</h3>
+      <div class="field"><b>ID</b> <code style="font-size:.75rem">${d.id}</code></div>
+      <div class="field"><b>t</b> ${d.t}</div>
+      <div class="field"><b>L</b> ${d.L}</div>
+      <div class="field"><b>화자</b> ${d.speaker||'—'}</div>
+      <div class="field"><b>S0</b> ${d.S0}</div>
+      <div class="field"><b>S1</b> ${d.S1}</div>
+      <div class="field"><b>P</b> ${d.intent_confidence.toFixed(2)} (${d.v_status})</div>
+      <div class="field"><b>근거</b> ${d.intent_reasoning||'—'}</div>
+      <div class="field"><b>출처</b> ${d.doc_source}</div>`;
+
+    if(d.isConflict && d.attacks && d.attacks.length) {
+      html += `<div class="conflict-alert"><strong>⚠ 충돌 상세</strong><br>`;
+      d.attacks.forEach(a => {
+        const fromDoc = a.from?.doc_source||'?';
+        const toDoc = a.to?.doc_source||'?';
+        html += `<div style="margin:4px 0">
+          <b>${fromDoc}</b>: "${a.from?.E||'?'}"<br>
+          ↔ <b>${toDoc}</b>: "${a.to?.E||'?'}"</div>`;
+      });
+      html += `</div>`;
+    }
+
+    if(d.dupCount>1) {
+      html += `<div class="dup-list"><b>📑 중복 문서 (${d.dupCount}개)</b>`;
+      d.members.forEach(m => {
+        html += `<div class="dup-item"><b>${m.doc_source}</b>: ${m.E}<br>
+          <span style="color:var(--muted)">S1: ${m.S1}</span></div>`;
+      });
+      html += `</div>`;
+    }
+
+    detail.innerHTML = html;
+  });
+
+  // Legend (HTML)
+  const legendItems = [
+    {label:'기망행위',color:L_COLORS['기망행위'],type:'circle'},
+    {label:'착오 유발',color:L_COLORS['착오 유발'],type:'circle'},
+    {label:'재산처분행위',color:L_COLORS['재산처분행위'],type:'circle'},
+    {label:'재산상 이익 취득',color:L_COLORS['재산상 이익 취득'],type:'circle'},
+    {label:'손해 발생',color:L_COLORS['손해 발생'],type:'circle'},
+    {label:'구성요건 외',color:L_COLORS['구성요건 외'],type:'circle'},
+    {label:'충돌 (Attack)',color:'var(--conflict)',type:'square'},
+    {label:'중복',color:'var(--dup-badge)',type:'text'},
+  ];
+  document.getElementById('legend-bar').innerHTML = legendItems.map(it => {
+    let swatch = '';
+    if(it.type==='circle') swatch = `<span class="lg-circle" style="background:${it.color}"></span>`;
+    else if(it.type==='square') swatch = `<span class="lg-square" style="background:${it.color}"></span>`;
+    else swatch = `<span class="lg-text" style="color:${it.color}">+N</span>`;
+    return `<span class="lg-item">${swatch} ${it.label}</span>`;
+  }).join('');
+
+  // Stats
+  const totalNodes = events.reduce((s,e)=>s+e.dupCount,0);
+  const conflicts = events.filter(e=>e.isConflict).length;
+  const dups = events.filter(e=>e.dupCount>1).length;
+  const avgP = (events.reduce((s,e)=>s+e.intent_confidence,0)/events.length).toFixed(2);
+  document.getElementById('stats').innerHTML = `
+    <span class="stat">전체 노드 <b>${totalNodes}</b></span>
+    <span class="stat">고유 상태 <b>${events.length}</b></span>
+    <span class="stat">충돌 지점 <b style="color:var(--conflict)">${conflicts}</b></span>
+    <span class="stat">중복 클러스터 <b style="color:var(--dup-badge)">${dups}</b></span>
+    <span class="stat">평균 P <b>${avgP}</b></span>`;
+
+  // Verdict card
+  const vc = document.getElementById('verdict-card');
+  if(_verifiedIntent) {
+    const vi = _verifiedIntent;
+    const ts = TYPE_STYLES[vi.intent_type] || TYPE_STYLES['Type 2'];
+    vc.style.display = 'block';
+    vc.innerHTML =
+      `<div class="vc-line"><span class="vc-label">고의 유형:</span><span class="vc-value">${ts.label} — ${vi.intent_score.toFixed(2)}</span></div>` +
+      `<div class="vc-line"><span class="vc-label">판단 근거:</span><span class="vc-value">${vi.justification}</span></div>`;
+  } else { vc.style.display = 'none'; }
+}
+
+// === Verdict display ===
+const TYPE_STYLES = {
+  'Type 0':{bg:'rgba(192,57,43,.10)',border:'var(--type0)',label:'Type 0 — 명시적 고의'},
+  'Type 1':{bg:'rgba(230,126,34,.10)',border:'var(--type1)',label:'Type 1 — 강정황 고의'},
+  'Type 2':{bg:'rgba(243,156,18,.12)',border:'var(--type2)',label:'Type 2 — 모호 (Human Review)'},
+  'Type 3':{bg:'rgba(41,128,185,.08)',border:'var(--type3)',label:'Type 3 — 불인정'},
+};
+let _verifiedIntent = null;
+
+// === L-type Filter ===
+let _allEvents = [];
+
+function buildFilters(events) {
+  const types = [...new Set(events.map(e => e.L))];
+  const bar = document.getElementById('filters');
+  bar.innerHTML = '<span class="filter-title">L 필터:</span>';
+  types.forEach(lType => {
+    const color = L_COLORS[lType] || '#95a5a6';
+    const id = 'f-' + lType.replace(/\s/g,'_');
+    const label = document.createElement('label');
+    label.setAttribute('for', id);
+    label.innerHTML = `<input type="checkbox" id="${id}" value="${lType}" checked>` +
+      `<span class="cb-swatch" style="background:${color}"></span>` +
+      `<span class="cb-label">${lType}</span>`;
+    bar.appendChild(label);
+    label.querySelector('input').addEventListener('change', applyFilters);
+  });
+}
+
+function getCheckedL() {
+  return [...document.querySelectorAll('#filters input[type="checkbox"]:checked')].map(cb => cb.value);
+}
+
+function applyFilters() {
+  const checked = new Set(getCheckedL());
+  const filtered = _allEvents.filter(ev => checked.has(ev.L));
+  render(filtered);
+}
+
+function loadAndRender(events, intent) {
+  _allEvents = events;
+  _verifiedIntent = intent || null;
+  buildFilters(events);
+  render(events);
+}
+
+// === Load / Demo ===
+const demoVerdict = {
+  intent_score: 0.78,
+  intent_type: 'Type 1',
+  justification: '피의자의 수익률 주장이 금감원 자료(d05)에 의해 직접 반박됨. 기망행위→착오→재산처분→손해 발생 4단계 인과 연쇄가 모두 연결되어 있으므로 Type 1(강정황 고의)로 판단.',
+};
+
+function loadDemo() {
+  document.getElementById('btn-demo').classList.add('active');
+  loadAndRender(processNodes(demoNodes), demoVerdict);
+}
+
+document.getElementById('file-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if(!file) return;
+  document.getElementById('btn-demo').classList.remove('active');
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const json = JSON.parse(ev.target.result);
+      const nodes = json.aggregated_graph?.assembled_nodes || json.assembled_nodes || [];
+      if(!nodes.length) { alert('노드 데이터를 찾을 수 없습니다.'); return; }
+      loadAndRender(processNodes(nodes), json.verified_intent || null);
+    } catch(err) { alert('JSON 파싱 오류: '+err.message); }
+  };
+  reader.readAsText(file);
+});
+
+document.getElementById('btn-demo').addEventListener('click', loadDemo);
+loadDemo();
+</script>
+</body>
+</html>
